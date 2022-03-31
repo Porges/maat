@@ -4,20 +4,20 @@ import (
 	"math/rand"
 
 	"github.com/Porges/maat/gen"
+	"golang.org/x/exp/slices"
 )
 
-func (g *G) Derived(name string, deriver func() interface{}) interface{} {
-	return g.RunGenerator(name, derived{g, deriver})
+func Derive[T any](g *G, name string, deriver func() T) T {
+	return RunGenerator[T](g.Runner, name, derived[T]{g, deriver})
 }
 
-type derived struct {
+type derived[T any] struct {
 	g       *G
-	deriver func() interface{}
+	deriver func() T
 }
 
-func (d derived) Generate(r *rand.Rand) gen.GeneratedValue {
-
-	var result interface{}
+func (d derived[T]) Generate(r *rand.Rand) gen.GeneratedValue[T] {
+	var result T
 	recording := recordExecution(r, func(r Runner) {
 		oldR := d.g.Runner
 		d.g.Runner = r
@@ -25,18 +25,18 @@ func (d derived) Generate(r *rand.Rand) gen.GeneratedValue {
 		result = d.deriver()
 	})
 
-	return gen.GeneratedValue{
+	return gen.GeneratedValue[T]{
 		Value:    result,
 		Shrinker: d.shrinkRecording(recording),
 	}
 }
 
-func (d derived) shrinkRecording(executionRecord recording) gen.Shrinker {
-	return func(_ interface{}, send gen.Shrinkee) gen.ShrinkResult {
+func (d derived[T]) shrinkRecording(executionRecord recording) gen.Shrinker[T] {
+	return func(_ T, send gen.Shrinkee[T]) gen.ShrinkResult {
 		for ix := range executionRecord {
-			shrinkResult := executionRecord[ix].generated.Shrink(func(gv gen.GeneratedValue) gen.ShrinkeeResult {
-				newRecording := replaceRecordedAt(executionRecord, ix, gv)
-				var result interface{}
+			shrinkResult := executionRecord[ix].generated.Shrink(func(gv gen.GeneratedValue[any]) gen.ShrinkeeResult {
+				newRecording := replaceRecordedAt[any](executionRecord, ix, gv)
+				var result T
 				replayExecution(
 					newRecording,
 					func(r Runner) {
@@ -46,7 +46,7 @@ func (d derived) shrinkRecording(executionRecord recording) gen.Shrinker {
 						result = d.deriver()
 					})
 
-				return send(gen.GeneratedValue{
+				return send(gen.GeneratedValue[T]{
 					Value:    result,
 					Shrinker: d.shrinkRecording(newRecording),
 				})
@@ -61,9 +61,8 @@ func (d derived) shrinkRecording(executionRecord recording) gen.Shrinker {
 	}
 }
 
-func replaceRecordedAt(list recording, at int, v gen.GeneratedValue) recording {
-	result := make(recording, len(list))
-	copy(result, list)
+func replaceRecordedAt[T any](list recording, at int, v gen.GeneratedValue[any]) recording {
+	result := slices.Clone(list)
 	result[at].generated = v
 	return result
 }

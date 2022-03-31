@@ -2,7 +2,10 @@ package test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/Porges/maat"
 )
 
 type Node struct {
@@ -12,17 +15,35 @@ type Node struct {
 
 type LinkedList struct{ root *Node }
 
-func (ll LinkedList) PushFront(val int) LinkedList {
-	return LinkedList{
-		root: &Node{
-			value: val,
-			next:  ll.root,
-		},
+func (ll LinkedList) String() string {
+	sb := strings.Builder{}
+
+	node := ll.root
+	first := true
+	for node != nil {
+		if first {
+			first = false
+		} else {
+			sb.WriteString(", ")
+		}
+
+		sb.WriteString(fmt.Sprintf("%d", node.value))
+		node = node.next
+	}
+
+	return sb.String()
+}
+
+var _ fmt.Stringer = LinkedList{}
+
+func (ll LinkedList) PushFront(val int) {
+	ll.root = &Node{
+		value: val,
+		next:  ll.root,
 	}
 }
 
 func (ll LinkedList) Equals(other LinkedList) bool {
-
 	n1 := ll.root
 	n2 := other.root
 
@@ -53,26 +74,39 @@ func (ll LinkedList) Reverse() LinkedList {
 	return LinkedList{output}
 }
 
-func (g G) LinkedList(name string) LinkedList {
-	return g.Derived(
+func (ll LinkedList) ReverseSimple() LinkedList {
+	result := LinkedList{}
+
+	node := ll.root
+	for node != nil {
+		result.PushFront(node.value)
+		node = node.next
+	}
+
+	return result
+}
+
+func GenLinkedList(g maat.G, name string) LinkedList {
+	return maat.Derive(
+		&g,
 		name,
-		func() interface{} {
-			length := g.Byte("length")
+		func() LinkedList {
+			length := maat.Byte(g, "length")
 			result := LinkedList{}
 			for i := 0; i < int(length); i++ {
-				result = result.PushFront(g.Int(fmt.Sprintf("value_%v", i)))
+				result.PushFront(maat.Int(g, fmt.Sprintf("value_%v", i)))
 			}
 
 			return result
-		}).(LinkedList)
+		})
 }
 
 func TestRecursive(t *testing.T) {
-	m := NewMaat(t)
+	m := maat.New(t)
 	m.Boolean(
 		"linked list",
-		func(g G) bool {
-			list := g.LinkedList("list")
-			return list.Reverse().Equals(list)
+		func(g maat.G) bool {
+			list := GenLinkedList(g, "list")
+			return list.Reverse().Equals(list.ReverseSimple())
 		})
 }

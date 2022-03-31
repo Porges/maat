@@ -6,18 +6,18 @@ package gen
 
 import "math"
 
+type ()
+
 type Uint16Generator struct {
 	shrinkTarget uint16
 }
 
-func (g Uint16Generator) shrink(v interface{}, send Shrinkee) ShrinkResult {
-	value := v.(uint16)
-
+func (g Uint16Generator) shrink(value uint16, send Shrinkee[uint16]) ShrinkResult {
 	// very fast shrink:
 	if value > 0 && value > g.shrinkTarget {
 		logged := uint16(math.Log10(float64(value)))
 		if logged != value {
-			if send(GeneratedValue{logged, g.shrink}) == Stop {
+			if send(GeneratedValue[uint16]{logged, g.shrink}) == Stop {
 				return Stopped
 			}
 		}
@@ -26,18 +26,18 @@ func (g Uint16Generator) shrink(v interface{}, send Shrinkee) ShrinkResult {
 	// fast shrink:
 	halved := value / 2
 	if halved != value && value > g.shrinkTarget {
-		if send(GeneratedValue{halved, g.shrink}) == Stop {
+		if send(GeneratedValue[uint16]{halved, g.shrink}) == Stop {
 			return Stopped
 		}
 	}
 
 	// slow shrink:
 	if value > g.shrinkTarget {
-		if send(GeneratedValue{value - 1, g.shrink}) == Stop {
+		if send(GeneratedValue[uint16]{value - 1, g.shrink}) == Stop {
 			return Stopped
 		}
 	} else if value < g.shrinkTarget {
-		if send(GeneratedValue{value + 1, g.shrink}) == Stop {
+		if send(GeneratedValue[uint16]{value + 1, g.shrink}) == Stop {
 			return Stopped
 		}
 	}

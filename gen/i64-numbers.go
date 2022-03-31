@@ -6,18 +6,18 @@ package gen
 
 import "math"
 
+type ()
+
 type Int64Generator struct {
 	shrinkTarget int64
 }
 
-func (g Int64Generator) shrink(v interface{}, send Shrinkee) ShrinkResult {
-	value := v.(int64)
-
+func (g Int64Generator) shrink(value int64, send Shrinkee[int64]) ShrinkResult {
 	// very fast shrink:
 	if value > 0 && value > g.shrinkTarget {
 		logged := int64(math.Log10(float64(value)))
 		if logged != value {
-			if send(GeneratedValue{logged, g.shrink}) == Stop {
+			if send(GeneratedValue[int64]{logged, g.shrink}) == Stop {
 				return Stopped
 			}
 		}
@@ -26,18 +26,18 @@ func (g Int64Generator) shrink(v interface{}, send Shrinkee) ShrinkResult {
 	// fast shrink:
 	halved := value / 2
 	if halved != value && value > g.shrinkTarget {
-		if send(GeneratedValue{halved, g.shrink}) == Stop {
+		if send(GeneratedValue[int64]{halved, g.shrink}) == Stop {
 			return Stopped
 		}
 	}
 
 	// slow shrink:
 	if value > g.shrinkTarget {
-		if send(GeneratedValue{value - 1, g.shrink}) == Stop {
+		if send(GeneratedValue[int64]{value - 1, g.shrink}) == Stop {
 			return Stopped
 		}
 	} else if value < g.shrinkTarget {
-		if send(GeneratedValue{value + 1, g.shrink}) == Stop {
+		if send(GeneratedValue[int64]{value + 1, g.shrink}) == Stop {
 			return Stopped
 		}
 	}

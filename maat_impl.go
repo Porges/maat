@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/exp/slices"
+
 	"github.com/Porges/maat/gen"
 )
 
@@ -49,7 +51,7 @@ func (i impl) Boolean(name string, checkable func(g G) bool) bool {
 }
 
 func (i impl) shrink(name string, executionRecord recording, checkable func(g G, t *testing.T)) string {
-	initial := append(([]generationRecord)(nil), executionRecord...)
+	initial := slices.Clone(executionRecord)
 
 	shrinks := 0
 	for {
@@ -57,7 +59,7 @@ func (i impl) shrink(name string, executionRecord recording, checkable func(g G,
 		for ix := range executionRecord {
 			generated := executionRecord[ix].generated
 			if generated.Shrinker != nil {
-				shrinkResult := generated.Shrink(func(possible gen.GeneratedValue) gen.ShrinkeeResult {
+				shrinkResult := generated.Shrink(func(possible gen.GeneratedValue[any]) gen.ShrinkeeResult {
 					shrinks += 1
 					executionRecord[ix].generated = possible
 					success := i.t.Run(fmt.Sprintf("%s (shrink attempt %v)", name, shrinks), func(t *testing.T) {
@@ -99,6 +101,12 @@ func (i impl) shrink(name string, executionRecord recording, checkable func(g G,
 
 type usageError struct {
 	msg string
+}
+
+var _ error = usageError{}
+
+func (ue usageError) Error() string {
+	return ue.msg
 }
 
 func (i impl) nameSuffix() string {

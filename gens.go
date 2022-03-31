@@ -1,50 +1,54 @@
 package maat
 
-import "github.com/Porges/maat/gen"
+import (
+	"github.com/Porges/maat/gen"
+)
 
 type G struct {
 	Runner
 }
 
-func (g G) Byte(name string) byte {
-	return g.RunGenerator(name, gen.Byte).(byte)
+func Byte(g G, name string) byte {
+	return RunGenerator[byte](g.Runner, name, gen.Byte)
 }
 
-func (g G) Bool(name string) bool {
-	return g.RunGenerator(name, gen.Bool).(bool)
+func Bool(g G, name string) bool {
+	return RunGenerator[bool](g.Runner, name, gen.Bool)
 }
 
-func (g G) Int(name string) int {
-	return g.RunGenerator(name, gen.Int).(int)
+func Int(g G, name string) int {
+	return RunGenerator[int](g.Runner, name, gen.Int)
 }
 
-func (g G) SliceOf(name string, element gen.Generator, minSize int, maxSize int) []interface{} {
-	return g.RunGenerator(name, gen.SliceOf(element, minSize, maxSize)).([]interface{})
+func SliceOf[T any](g *G, name string, element gen.Generator[T], minSize int, maxSize int) []T {
+	return RunGenerator(g.Runner, name, gen.SliceOf(element, minSize, maxSize))
 }
 
-func (g G) SliceOfInt(name string, element gen.IntGenerator, minSize int, maxSize int) []int {
-	return g.Derived(
+func SliceOfInt(g *G, name string, element gen.IntGenerator, minSize int, maxSize int) []int {
+	return Derive(
+		g,
 		name,
-		func() interface{} {
-			inner := g.SliceOf("values", element, minSize, maxSize)
+		func() []int {
+			inner := SliceOf(g, "values", gen.ToAny[int](element), minSize, maxSize)
 			result := make([]int, len(inner))
 			for ix := range inner {
 				result[ix] = inner[ix].(int)
 			}
 
 			return result
-		}).([]int)
+		})
 }
 
-func (g G) String(name string, minSize int, maxSize int) string {
-	return g.Derived(
+func String(g *G, name string, minSize int, maxSize int) string {
+	return Derive(
+		g,
 		name,
-		func() interface{} {
-			chars := g.SliceOf("chars", gen.Char, 1, 10)
+		func() string {
+			chars := SliceOf(g, "chars", gen.ToAny[rune](gen.Rune), 1, 10)
 			runes := make([]rune, len(chars))
 			for ix := range chars {
 				runes[ix] = chars[ix].(rune)
 			}
 			return string(runes)
-		}).(string)
+		})
 }

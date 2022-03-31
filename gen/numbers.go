@@ -21,21 +21,21 @@ import (
 //go:generate genny -in=$GOFILE -out=i64-$GOFILE -pkg gen gen "_T=Int64 _t=int64"
 //go:generate genny -in=$GOFILE -out=u64-$GOFILE -pkg gen gen "_T=Uint64 _t=uint64"
 
-type _T generic.Type
-type _t generic.Number
+type (
+	_T generic.Type
+	_t generic.Number
+)
 
 type _TGenerator struct {
 	shrinkTarget _t
 }
 
-func (g _TGenerator) shrink(v interface{}, send Shrinkee) ShrinkResult {
-	value := v.(_t)
-
+func (g _TGenerator) shrink(value _t, send Shrinkee[_t]) ShrinkResult {
 	// very fast shrink:
 	if value > 0 && value > g.shrinkTarget {
 		logged := _t(math.Log10(float64(value)))
 		if logged != value {
-			if send(GeneratedValue{logged, g.shrink}) == Stop {
+			if send(GeneratedValue[_t]{logged, g.shrink}) == Stop {
 				return Stopped
 			}
 		}
@@ -44,18 +44,18 @@ func (g _TGenerator) shrink(v interface{}, send Shrinkee) ShrinkResult {
 	// fast shrink:
 	halved := value / 2
 	if halved != value && value > g.shrinkTarget {
-		if send(GeneratedValue{halved, g.shrink}) == Stop {
+		if send(GeneratedValue[_t]{halved, g.shrink}) == Stop {
 			return Stopped
 		}
 	}
 
 	// slow shrink:
 	if value > g.shrinkTarget {
-		if send(GeneratedValue{value - 1, g.shrink}) == Stop {
+		if send(GeneratedValue[_t]{value - 1, g.shrink}) == Stop {
 			return Stopped
 		}
 	} else if value < g.shrinkTarget {
-		if send(GeneratedValue{value + 1, g.shrink}) == Stop {
+		if send(GeneratedValue[_t]{value + 1, g.shrink}) == Stop {
 			return Stopped
 		}
 	}

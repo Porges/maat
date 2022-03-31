@@ -4,15 +4,15 @@ import (
 	"math/rand"
 )
 
-func OneOf(generators ...Generator) Generator {
-	return oneOf{generators}
+func OneOf[T any](generators ...Generator[T]) Generator[T] {
+	return oneOf[T]{generators}
 }
 
-type oneOf struct {
-	inner []Generator
+type oneOf[T any] struct {
+	inner []Generator[T]
 }
 
-func (o oneOf) Generate(r *rand.Rand) GeneratedValue {
+func (o oneOf[T]) Generate(r *rand.Rand) GeneratedValue[T] {
 	ix := r.Intn(len(o.inner))
 	return o.inner[ix].Generate(r)
 }

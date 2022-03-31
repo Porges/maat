@@ -15,37 +15,43 @@ func NewMaat(t *testing.T) MyMaat {
 	return MyMaat{maat.New(t, maat.PrettyPrinter(prettyPrint))}
 }
 
-// ... and then wrap the functions:
+// ... and then wrap the two functions:
 func (m MyMaat) Boolean(name string, checkable func(g G) bool) bool {
 	return m.Maat.Boolean(name, func(g maat.G) bool { return checkable(G{g}) })
 }
 
-// Now you can define your generators easily:
-type Color struct{ r, g, b byte }
+func (m MyMaat) Check(name string, checkable func(g G)) bool {
+	return m.Maat.Check(name, func(g maat.G, t *testing.T) { checkable(G{g}) })
+}
 
-func (g G) Color(name string) Color {
-	return g.Derived(
+// Now you can define your generators easily:
+type ColorType struct{ r, g, b byte }
+
+func Color(g *G, name string) ColorType {
+	return maat.Derive(
+		&g.G,
 		name,
-		func() interface{} {
-			return Color{g.Byte("r"), g.Byte("g"), g.Byte("b")}
-		}).(Color)
+		func() ColorType {
+			return ColorType{maat.Byte(g.G, "r"), maat.Byte(g.G, "g"), maat.Byte(g.G, "b")}
+		})
 }
 
 // ... and generators can depend on other custom generators:
-type Dog struct {
+type DogType struct {
 	name  string
-	color Color
+	color ColorType
 }
 
-func (g G) Dog(name string) Dog {
-	return g.Derived(
+func Dog(g *G, name string) DogType {
+	return maat.Derive(
+		&g.G,
 		name,
-		func() interface{} {
-			return Dog{
-				name:  g.String("name", 1, 10),
-				color: g.Color("color"),
+		func() DogType {
+			return DogType{
+				name:  maat.String(&g.G, "name", 1, 10),
+				color: Color(g, "color"),
 			}
-		}).(Dog)
+		})
 }
 
 // Example test:
@@ -54,6 +60,6 @@ func TestCustom(t *testing.T) {
 	m.Boolean(
 		"dog generator",
 		func(g G) bool {
-			return g.Dog("d1").name == g.Dog("d2").name
+			return Dog(&g, "d1").name == Dog(&g, "d2").name
 		})
 }

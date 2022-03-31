@@ -6,18 +6,18 @@ package gen
 
 import "math"
 
+type ()
+
 type Int8Generator struct {
 	shrinkTarget int8
 }
 
-func (g Int8Generator) shrink(v interface{}, send Shrinkee) ShrinkResult {
-	value := v.(int8)
-
+func (g Int8Generator) shrink(value int8, send Shrinkee[int8]) ShrinkResult {
 	// very fast shrink:
 	if value > 0 && value > g.shrinkTarget {
 		logged := int8(math.Log10(float64(value)))
 		if logged != value {
-			if send(GeneratedValue{logged, g.shrink}) == Stop {
+			if send(GeneratedValue[int8]{logged, g.shrink}) == Stop {
 				return Stopped
 			}
 		}
@@ -26,18 +26,18 @@ func (g Int8Generator) shrink(v interface{}, send Shrinkee) ShrinkResult {
 	// fast shrink:
 	halved := value / 2
 	if halved != value && value > g.shrinkTarget {
-		if send(GeneratedValue{halved, g.shrink}) == Stop {
+		if send(GeneratedValue[int8]{halved, g.shrink}) == Stop {
 			return Stopped
 		}
 	}
 
 	// slow shrink:
 	if value > g.shrinkTarget {
-		if send(GeneratedValue{value - 1, g.shrink}) == Stop {
+		if send(GeneratedValue[int8]{value - 1, g.shrink}) == Stop {
 			return Stopped
 		}
 	} else if value < g.shrinkTarget {
-		if send(GeneratedValue{value + 1, g.shrink}) == Stop {
+		if send(GeneratedValue[int8]{value + 1, g.shrink}) == Stop {
 			return Stopped
 		}
 	}

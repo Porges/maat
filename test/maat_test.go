@@ -18,24 +18,24 @@ func TestMaat(t *testing.T) {
 
 	m.Boolean("Can use simple assertions",
 		func(g maat.G) bool {
-			return g.Int("left") == g.Int("right")
+			return maat.Int(g, "left") == maat.Int(g, "right")
 		})
 
 	m.Check("Can use testing.T",
 		func(g maat.G, t *testing.T) {
 			om := gomega.NewWithT(t)
-			om.Expect(g.Int("x")).To(gomega.Equal(g.Int("y")))
+			om.Expect(maat.Int(g, "x")).To(gomega.Equal(maat.Int(g, "y")))
 		})
 
 	m.Boolean("slices",
 		func(g maat.G) bool {
-			slice := g.SliceOf("values", gen.Int, 2, 100)
-			return slice[0].(int) == slice[1].(int)
+			slice := maat.SliceOf[int](&g, "values", gen.Int, 2, 100)
+			return slice[0] == slice[1]
 		})
 
 	m.Boolean("typed slices",
 		func(g maat.G) bool {
-			slice := g.SliceOfInt("values", gen.Int, 2, 100)
+			slice := maat.SliceOfInt(&g, "values", gen.Int, 2, 100)
 			return slice[0] == slice[1]
 		})
 }

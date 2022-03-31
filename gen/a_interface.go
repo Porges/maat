@@ -4,16 +4,16 @@ import (
 	"math/rand"
 )
 
-type Generator interface {
-	Generate(rand *rand.Rand) GeneratedValue
+type Generator[T any] interface {
+	Generate(rand *rand.Rand) GeneratedValue[T]
 }
 
-type GeneratedValue struct {
-	Value    interface{}
-	Shrinker Shrinker
+type GeneratedValue[T any] struct {
+	Value    T
+	Shrinker Shrinker[T]
 }
 
-func (v GeneratedValue) Shrink(s Shrinkee) ShrinkResult {
+func (v GeneratedValue[T]) Shrink(s Shrinkee[T]) ShrinkResult {
 	return v.Shrinker(v.Value, s)
 }
 
@@ -22,7 +22,7 @@ func (v GeneratedValue) Shrink(s Shrinkee) ShrinkResult {
 // Shrinkee can return Stop to indicate it doesn't want any more values.
 // The Shrinker will return Stopped if the Shrinkee returned Stop, or
 // otherwise Exhausted.
-type Shrinker = func(interface{}, Shrinkee) ShrinkResult
+type Shrinker[T any] func(T, Shrinkee[T]) ShrinkResult
 type ShrinkResult int
 
 const (
@@ -30,8 +30,10 @@ const (
 	Exhausted
 )
 
-type Shrinkee = func(GeneratedValue) ShrinkeeResult
-type ShrinkeeResult int
+type (
+	Shrinkee[T any] func(GeneratedValue[T]) ShrinkeeResult
+	ShrinkeeResult  int
+)
 
 const (
 	Stop ShrinkeeResult = iota
