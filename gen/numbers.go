@@ -34,7 +34,7 @@ func (g _TGenerator) shrink(value _t, send Shrinkee[_t]) ShrinkResult {
 	// very fast shrink:
 	if value > 0 && value > g.shrinkTarget {
 		logged := _t(math.Log10(float64(value)))
-		if logged != value {
+		if logged != value && logged >= g.shrinkTarget {
 			if send(GeneratedValue[_t]{logged, g.shrink}) == Stop {
 				return Stopped
 			}
@@ -43,7 +43,7 @@ func (g _TGenerator) shrink(value _t, send Shrinkee[_t]) ShrinkResult {
 
 	// fast shrink:
 	halved := value / 2
-	if halved != value && value > g.shrinkTarget {
+	if halved != value && halved >= g.shrinkTarget {
 		if send(GeneratedValue[_t]{halved, g.shrink}) == Stop {
 			return Stopped
 		}

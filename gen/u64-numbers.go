@@ -16,7 +16,7 @@ func (g Uint64Generator) shrink(value uint64, send Shrinkee[uint64]) ShrinkResul
 	// very fast shrink:
 	if value > 0 && value > g.shrinkTarget {
 		logged := uint64(math.Log10(float64(value)))
-		if logged != value {
+		if logged != value && logged >= g.shrinkTarget {
 			if send(GeneratedValue[uint64]{logged, g.shrink}) == Stop {
 				return Stopped
 			}
@@ -25,7 +25,7 @@ func (g Uint64Generator) shrink(value uint64, send Shrinkee[uint64]) ShrinkResul
 
 	// fast shrink:
 	halved := value / 2
-	if halved != value && value > g.shrinkTarget {
+	if halved != value && halved >= g.shrinkTarget {
 		if send(GeneratedValue[uint64]{halved, g.shrink}) == Stop {
 			return Stopped
 		}

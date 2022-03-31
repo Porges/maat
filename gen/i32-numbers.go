@@ -16,7 +16,7 @@ func (g Int32Generator) shrink(value int32, send Shrinkee[int32]) ShrinkResult {
 	// very fast shrink:
 	if value > 0 && value > g.shrinkTarget {
 		logged := int32(math.Log10(float64(value)))
-		if logged != value {
+		if logged != value && logged >= g.shrinkTarget {
 			if send(GeneratedValue[int32]{logged, g.shrink}) == Stop {
 				return Stopped
 			}
@@ -25,7 +25,7 @@ func (g Int32Generator) shrink(value int32, send Shrinkee[int32]) ShrinkResult {
 
 	// fast shrink:
 	halved := value / 2
-	if halved != value && value > g.shrinkTarget {
+	if halved != value && halved >= g.shrinkTarget {
 		if send(GeneratedValue[int32]{halved, g.shrink}) == Stop {
 			return Stopped
 		}
