@@ -6,10 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"golang.org/x/exp/slices"
-
-	"github.com/Porges/maat/gen"
 )
 
 type impl struct {
@@ -21,18 +17,18 @@ func (i impl) Check(name string, checkable func(g G, t *testing.T)) bool {
 	return i.t.Run(name+i.nameSuffix(), func(t *testing.T) {
 		source := rand.NewSource(0)
 
-		var executionRecord recording
+		var recording recording
 		defer func() {
-			if t.Failed() && executionRecord != nil {
-				t.Logf("%s", i.shrink(name, executionRecord, checkable))
+			if t.Failed() && recording != nil {
+				t.Logf("%s", i.shrink(name, recording, checkable))
 			}
 		}()
 
 		for iteration := 0; iteration < int(i.config.Iterations); iteration++ {
 			newSeed := time.Now().Unix() // TODO: source stored seeds from somewhere
 			source.Seed(newSeed)
-			executionRecord = nil // reset here so if next line panics/exits it is nil
-			executionRecord = recordExecution(rand.New(source), func(r Runner) { checkable(G{r}, t) })
+			recording = nil // reset here so if next line panics/exits it is nil
+			recording = recordExecution(rand.New(source), func(r *Runner) { checkable(G{r}, t) })
 			if t.Failed() {
 				// if user called Fail instead of FailNow, we want to stop
 				t.FailNow()
@@ -51,33 +47,24 @@ func (i impl) Boolean(name string, checkable func(g G) bool) bool {
 }
 
 func (i impl) shrink(name string, executionRecord recording, checkable func(g G, t *testing.T)) string {
-	initial := slices.Clone(executionRecord)
+	var original []string
+	for _, r := range executionRecord {
+		original = append(original, fmt.Sprintf("%s: %s", r.Name(), i.config.Printer(r.Value())))
+	}
 
 	shrinks := 0
 	for {
 		shrank := false
 		for ix := range executionRecord {
-			generated := executionRecord[ix].generated
-			if generated.Shrinker != nil {
-				shrinkResult := generated.Shrink(func(possible gen.GeneratedValue[any]) gen.ShrinkeeResult {
-					shrinks += 1
-					executionRecord[ix].generated = possible
-					success := i.t.Run(fmt.Sprintf("%s (shrink attempt %v)", name, shrinks), func(t *testing.T) {
-						replayExecution(executionRecord, func(r Runner) { checkable(G{r}, t) })
-					})
-
-					if success {
-						// restore old value
-						executionRecord[ix].generated = generated
-						return gen.Continue
-					} else {
-						return gen.Stop
-					}
+			didShrink := executionRecord[ix].AttemptShrink(func() bool {
+				shrinks += 1
+				return i.t.Run(fmt.Sprintf("%s (shrink attempt %v)", name, shrinks), func(t *testing.T) {
+					replayExecution(executionRecord, func(r *Runner) { checkable(G{r}, t) })
 				})
+			})
 
-				if shrinkResult == gen.Stopped {
-					shrank = true
-				}
+			if didShrink {
+				shrank = true
 			}
 		}
 
@@ -86,14 +73,9 @@ func (i impl) shrink(name string, executionRecord recording, checkable func(g G,
 		}
 	}
 
-	var original []string
-	for _, r := range initial {
-		original = append(original, fmt.Sprintf("%s: %s", r.name, i.config.Printer(r.generated.Value)))
-	}
-
 	var report []string
 	for _, r := range executionRecord {
-		report = append(report, fmt.Sprintf("%s: %s", r.name, i.config.Printer(r.generated.Value)))
+		report = append(report, fmt.Sprintf("%s: %s", r.Name(), i.config.Printer(r.Value())))
 	}
 
 	return fmt.Sprintf("\n[Maat] Shrunk failure:\n%s\n\n[Maat] Original failure:\n%s\n\n", strings.Join(report, "\n"), strings.Join(original, "\n"))

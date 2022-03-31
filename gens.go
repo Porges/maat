@@ -5,23 +5,23 @@ import (
 )
 
 type G struct {
-	Runner
+	runner *Runner
 }
 
 func Byte(g G, name string) byte {
-	return RunGenerator[byte](g.Runner, name, gen.Byte)
+	return Run[byte](g.runner, name, gen.Byte)
 }
 
 func Bool(g G, name string) bool {
-	return RunGenerator[bool](g.Runner, name, gen.Bool)
+	return Run[bool](g.runner, name, gen.Bool)
 }
 
 func Int(g G, name string) int {
-	return RunGenerator[int](g.Runner, name, gen.Int)
+	return Run[int](g.runner, name, gen.Int)
 }
 
 func SliceOf[T any](g *G, name string, element gen.Generator[T], minSize int, maxSize int) []T {
-	return RunGenerator(g.Runner, name, gen.SliceOf(element, minSize, maxSize))
+	return Run(g.runner, name, gen.SliceOf(element, minSize, maxSize))
 }
 
 func SliceOfInt(g *G, name string, element gen.IntGenerator, minSize int, maxSize int) []int {
@@ -29,13 +29,7 @@ func SliceOfInt(g *G, name string, element gen.IntGenerator, minSize int, maxSiz
 		g,
 		name,
 		func() []int {
-			inner := SliceOf(g, "values", gen.ToAny[int](element), minSize, maxSize)
-			result := make([]int, len(inner))
-			for ix := range inner {
-				result[ix] = inner[ix].(int)
-			}
-
-			return result
+			return SliceOf[int](g, "values", element, minSize, maxSize)
 		})
 }
 
@@ -44,11 +38,7 @@ func String(g *G, name string, minSize int, maxSize int) string {
 		g,
 		name,
 		func() string {
-			chars := SliceOf(g, "chars", gen.ToAny[rune](gen.Rune), 1, 10)
-			runes := make([]rune, len(chars))
-			for ix := range chars {
-				runes[ix] = chars[ix].(rune)
-			}
+			runes := SliceOf[rune](g, "chars", gen.Rune, 1, 10)
 			return string(runes)
 		})
 }

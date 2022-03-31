@@ -8,20 +8,21 @@ import (
 )
 
 func Derive[T any](g *G, name string, deriver func() T) T {
-	return RunGenerator[T](g.Runner, name, derived[T]{g, deriver})
+	return Run[T](g.runner, name, derived[T]{g, name, deriver})
 }
 
 type derived[T any] struct {
 	g       *G
+	name    string
 	deriver func() T
 }
 
 func (d derived[T]) Generate(r *rand.Rand) gen.GeneratedValue[T] {
 	var result T
-	recording := recordExecution(r, func(r Runner) {
-		oldR := d.g.Runner
-		d.g.Runner = r
-		defer func() { d.g.Runner = oldR }()
+	recording := recordExecution(r, func(r *Runner) {
+		oldR := d.g.runner
+		d.g.runner = r
+		defer func() { d.g.runner = oldR }()
 		result = d.deriver()
 	})
 
@@ -33,26 +34,25 @@ func (d derived[T]) Generate(r *rand.Rand) gen.GeneratedValue[T] {
 
 func (d derived[T]) shrinkRecording(executionRecord recording) gen.Shrinker[T] {
 	return func(_ T, send gen.Shrinkee[T]) gen.ShrinkResult {
-		for ix := range executionRecord {
-			shrinkResult := executionRecord[ix].generated.Shrink(func(gv gen.GeneratedValue[any]) gen.ShrinkeeResult {
-				newRecording := replaceRecordedAt[any](executionRecord, ix, gv)
+		for _, generationRecord := range executionRecord {
+			stopped := generationRecord.AttemptShrink(func() bool {
 				var result T
 				replayExecution(
-					newRecording,
-					func(r Runner) {
-						oldR := d.g.Runner
-						d.g.Runner = r
-						defer func() { d.g.Runner = oldR }()
+					executionRecord,
+					func(r *Runner) {
+						oldR := d.g.runner
+						d.g.runner = r
+						defer func() { d.g.runner = oldR }()
 						result = d.deriver()
 					})
 
 				return send(gen.GeneratedValue[T]{
 					Value:    result,
-					Shrinker: d.shrinkRecording(newRecording),
-				})
+					Shrinker: d.shrinkRecording(deepClone(executionRecord)),
+				}) == gen.Continue
 			})
 
-			if shrinkResult == gen.Stopped {
+			if stopped {
 				return gen.Stopped
 			}
 		}
@@ -61,8 +61,11 @@ func (d derived[T]) shrinkRecording(executionRecord recording) gen.Shrinker[T] {
 	}
 }
 
-func replaceRecordedAt[T any](list recording, at int, v gen.GeneratedValue[any]) recording {
+func deepClone(list recording) recording {
 	result := slices.Clone(list)
-	result[at].generated = v
+	for ix := range result {
+		result[ix] = result[ix].Clone()
+	}
+
 	return result
 }
