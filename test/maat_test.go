@@ -29,13 +29,13 @@ func TestMaat(t *testing.T) {
 
 	m.Boolean("slices",
 		func(g maat.G) bool {
-			slice := maat.SliceOf[int](&g, "values", gen.Int, 2, 100)
+			slice := maat.SliceOf[int](g, "values", gen.Int, 2, 100)
 			return slice[0] == slice[1]
 		})
 
 	m.Boolean("typed slices",
 		func(g maat.G) bool {
-			slice := maat.SliceOfInt(&g, "values", gen.Int, 2, 100)
+			slice := maat.SliceOfInt(g, "values", gen.Int, 2, 100)
 			return slice[0] == slice[1]
 		})
 }

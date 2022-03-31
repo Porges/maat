@@ -7,12 +7,12 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-func Derive[T any](g *G, name string, deriver func() T) T {
+func Derive[T any](g G, name string, deriver func() T) T {
 	return Run[T](g.runner, name, derived[T]{g, name, deriver})
 }
 
 type derived[T any] struct {
-	g       *G
+	g       G
 	name    string
 	deriver func() T
 }
@@ -20,9 +20,9 @@ type derived[T any] struct {
 func (d derived[T]) Generate(r *rand.Rand) gen.GeneratedValue[T] {
 	var result T
 	recording := recordExecution(r, func(r *Runner) {
-		oldR := d.g.runner
-		d.g.runner = r
-		defer func() { d.g.runner = oldR }()
+		oldR := *d.g.runner
+		*d.g.runner = *r
+		defer func() { *d.g.runner = oldR }()
 		result = d.deriver()
 	})
 
@@ -40,9 +40,9 @@ func (d derived[T]) shrinkRecording(executionRecord recording) gen.Shrinker[T] {
 				replayExecution(
 					executionRecord,
 					func(r *Runner) {
-						oldR := d.g.runner
-						d.g.runner = r
-						defer func() { d.g.runner = oldR }()
+						oldR := *d.g.runner
+						*d.g.runner = *r
+						defer func() { *d.g.runner = oldR }()
 						result = d.deriver()
 					})
 

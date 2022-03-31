@@ -42,17 +42,16 @@ func (s sliceOf[T]) Generate(r *rand.Rand) GeneratedValue[[]T] {
 func sliceShrinker[T any](minSize int, shrinkers []Shrinker[T]) Shrinker[[]T] {
 	return func(value []T, send Shrinkee[[]T]) ShrinkResult {
 		for ix := range value {
-			// take everything up to this point
-			/* TODO: make it work?
-			if ix > 0 && ix >= minSize {
-				sliced := value[:ix]
-				if !send(GeneratedValue{
-					Value:  sliced,
-					Shrink: sliceShrinker(sliced, minSize, shrinkers[:ix]),
-				}) {
-					return false
+			/*
+				if ix >= minSize {
+					sliced := value[:ix]
+					if Stop == send(GeneratedValue[[]T]{
+						Value:    sliced,
+						Shrinker: sliceShrinker(minSize, shrinkers[:ix]),
+					}) {
+						return Stopped
+					}
 				}
-			}
 			*/
 
 			// drop the value entirely

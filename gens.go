@@ -20,11 +20,11 @@ func Int(g G, name string) int {
 	return Run[int](g.runner, name, gen.Int)
 }
 
-func SliceOf[T any](g *G, name string, element gen.Generator[T], minSize int, maxSize int) []T {
+func SliceOf[T any](g G, name string, element gen.Generator[T], minSize int, maxSize int) []T {
 	return Run(g.runner, name, gen.SliceOf(element, minSize, maxSize))
 }
 
-func SliceOfInt(g *G, name string, element gen.IntGenerator, minSize int, maxSize int) []int {
+func SliceOfInt(g G, name string, element gen.IntGenerator, minSize int, maxSize int) []int {
 	return Derive(
 		g,
 		name,
@@ -33,7 +33,7 @@ func SliceOfInt(g *G, name string, element gen.IntGenerator, minSize int, maxSiz
 		})
 }
 
-func String(g *G, name string, minSize int, maxSize int) string {
+func String(g G, name string, minSize int, maxSize int) string {
 	return Derive(
 		g,
 		name,

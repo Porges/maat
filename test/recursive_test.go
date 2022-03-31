@@ -88,7 +88,7 @@ func (ll LinkedList) ReverseSimple() LinkedList {
 
 func GenLinkedList(g maat.G, name string) LinkedList {
 	return maat.Derive(
-		&g,
+		g,
 		name,
 		func() LinkedList {
 			length := maat.Byte(g, "length")
