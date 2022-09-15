@@ -12,8 +12,8 @@ package test
 import (
 	"testing"
 
-	"github.com/Porges/maat"
-	"github.com/Porges/maat/gen"
+	"github.com/Porges/maat/go"
+	"github.com/Porges/maat/go/gen"
 	"github.com/kr/pretty"
 )
 
