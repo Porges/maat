@@ -1,79 +1,61 @@
+//! # 𓁦 maat 𓆄
+//!
+//! ## About
+//!
+//! `maat` is a library for randomized execution of property-based tests.
+//!
+//!
+//! ```rust
+//! #[test]
+//! pub fn run() {
+//!     property(|maat| {
+//!         let x = maat.generate("x", i64(0, 100));
+//!         let y = maat.generate("y", i64(0, 100));
+//!         x + y == x + x || x < 10
+//!     });
+//! }
+//! ```
+//!
+//! Output:
+//! ```text
+//! ---- test::run stdout ----
+//! thread 'test::run' panicked at '
+//! [maat] Shrunk failure:
+//! x: i64 = 10
+//! y: i64 = 0
+//!
+//! [maat] Original failure:
+//! x: i64 = 49
+//! y: i64 = 27
+//!
+//! ', src/lib.rs:287:13
+//! ```
+
 use dynamic::Dynamic;
-use rand::{prelude::Distribution, Rng, SeedableRng};
+use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus as RNG;
 use std::{
     any::type_name,
     cell::RefCell,
-    fmt::{Display, Write},
+    fmt::{Debug, Display, Write},
+    time::Instant,
 };
 
-const MAAT: &str = "𓁦";
+pub mod generators;
 
-pub trait Generator<T> {
-    fn generate(&self, rng: &mut dyn rand::RngCore) -> T;
-    fn shrink(&self, value: T, shrink_valid: &mut dyn FnMut(&T) -> bool) -> Option<T>;
+pub struct Shrinkable<T> {
+    value: T,
+    shrink: Box<dyn Fn(&mut dyn FnMut(&T) -> bool) -> Option<T>>,
 }
 
-pub fn i64(min_inclusive: i64, max_exclusive: i64) -> impl Generator<i64> + Clone {
-    #[derive(Clone)]
-    struct G {
-        min_inclusive: i64,
-        max_exclusive: i64,
-    }
+pub trait Generator<T> {
+    // Fast path, used during Testing:
+    fn generate(&self, rng: &mut dyn rand::RngCore) -> T;
 
-    return G {
-        min_inclusive,
-        max_exclusive,
-    };
+    // Slower path, used during Recording:
+    //fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> Box<Shrinkable<T>>;
 
-    impl Generator<i64> for G {
-        fn generate(&self, rng: &mut dyn rand::RngCore) -> i64 {
-            rng.sample(rand::distributions::Uniform::new(
-                self.min_inclusive,
-                self.max_exclusive,
-            ))
-        }
-
-        fn shrink(&self, value: i64, shrink_valid: &mut dyn FnMut(&i64) -> bool) -> Option<i64> {
-            let mut v = value;
-
-            // very big shrink:
-            while v > self.min_inclusive && v > 0 {
-                let test = (v as f64).log10() as i64;
-                if shrink_valid(&test) {
-                    v = test;
-                } else {
-                    break;
-                }
-            }
-
-            // big shrink
-            while v > self.min_inclusive {
-                let test = v / 2;
-                if shrink_valid(&test) {
-                    v = test;
-                } else {
-                    break;
-                }
-            }
-
-            // slow shrink:
-            while v > self.min_inclusive {
-                let test = v - 1;
-                if shrink_valid(&test) {
-                    v = test;
-                } else {
-                    break;
-                }
-            }
-
-            if v != value {
-                Some(v)
-            } else {
-                None
-            }
-        }
-    }
+    fn shrink(&self, value: T, shrink_valid: &mut dyn FnMut(&T) -> bool) -> Option<T>;
 }
 
 #[derive(Clone)]
@@ -83,9 +65,24 @@ struct Generated<T, G> {
     generator: G,
 }
 
+impl<T, G> Display for Generated<T, G>
+where
+    T: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: {} = {:#?}",
+            self.name,
+            type_name::<T>(),
+            self.value.borrow().data
+        )
+    }
+}
+
 impl<T, G> GeneratedValue for Generated<T, G>
 where
-    T: 'static + Clone + Display,
+    T: 'static + Clone + Debug,
     G: Generator<T> + 'static + Clone,
 {
     fn name(&self) -> &'static str {
@@ -93,25 +90,26 @@ where
     }
 
     fn shrink(&self, is_valid: &dyn Fn() -> bool) -> bool {
+        let old_self = self.value.borrow().data.clone();
         if let Some(value) = {
             let initial_value = self.value.borrow().data.clone();
             self.generator.shrink(initial_value, &mut |shrunk: &T| {
-                let old_self = self.value.borrow().data.clone();
                 self.value.borrow_mut().data = shrunk.clone();
-                let passed = is_valid();
-                self.value.borrow_mut().data = old_self;
-                passed
+                is_valid()
             })
         } {
+            /*
             println!(
                 "shrank {} from {} to {}",
                 self.name,
                 self.value.borrow().data,
                 value
             );
+            */
             self.value.borrow_mut().data = value;
             true
         } else {
+            self.value.borrow_mut().data = old_self;
             false
         }
     }
@@ -120,36 +118,54 @@ where
         Dynamic::new(self.value.borrow().data.clone())
     }
 
-    fn set_value(&mut self, value: Box<Dynamic>) {
-        self.value.borrow_mut().data = value.downcast().expect("value of wrong type provided").data;
-    }
-
-    fn cloned(&self) -> Box<dyn GeneratedValue> {
-        Box::new(self.clone())
-    }
-
-    fn display(&self) -> String {
-        self.value.borrow().data.to_string()
-    }
-
     fn type_name(&self) -> &'static str {
         type_name::<T>()
     }
 }
 
-pub trait GeneratedValue {
+pub trait GeneratedValue: Display {
     fn name(&self) -> &'static str;
     fn type_name(&self) -> &'static str;
-    fn shrink(&self, shrink_valid: &dyn Fn() -> bool) -> bool;
-    fn display(&self) -> String;
     fn value(&self) -> Box<Dynamic>;
-    fn set_value(&mut self, value: Box<Dynamic>);
-    fn cloned(&self) -> Box<dyn GeneratedValue>;
+
+    // Note that this uses interior mutation, sorry:
+    fn shrink(&self, shrink_valid: &dyn Fn() -> bool) -> bool;
 }
 
 type Recording = Vec<Box<dyn GeneratedValue>>;
 
-pub enum Maat<'a> {
+/// The entry-point for generating values.
+pub struct Maat<'a> {
+    // this type serves only to hide the Mode type,
+    // which would otherwise have public members
+    mode: Mode<'a>,
+}
+
+impl<'a> Maat<'a> {
+    /// Generate a random value with the given `name`
+    /// and using the given `generator`.
+    ///
+    /// The `name` is used to identify the value in
+    /// the case of a failure.
+    ///
+    /// # Example
+    /// ```rust
+    /// let x = maat.generate("x", i64(0, 10_000));
+    /// ```
+    #[inline(always)]
+    pub fn generate<T>(
+        &mut self,
+        name: &'static str,
+        generator: impl Generator<T> + 'static + Clone,
+    ) -> T
+    where
+        T: Debug + Clone + 'static,
+    {
+        self.mode.generate(name, generator)
+    }
+}
+
+enum Mode<'a> {
     Testing {
         rng: &'a mut dyn rand::RngCore,
     },
@@ -158,23 +174,23 @@ pub enum Maat<'a> {
         record: &'a mut Recording,
     },
     Shrinking {
-        at: usize,
+        recording_ix: usize,
         recording: &'a Recording,
     },
 }
 
-impl<'a> Maat<'a> {
+impl<'a> Mode<'a> {
     pub fn generate<T>(
         &mut self,
         name: &'static str,
         generator: impl Generator<T> + 'static + Clone,
     ) -> T
     where
-        T: Clone + std::fmt::Display + 'static,
+        T: Clone + std::fmt::Debug + 'static,
     {
         match self {
-            Maat::Testing { rng } => generator.generate(rng),
-            Maat::Recording { rng, record } => {
+            Mode::Testing { rng } => generator.generate(rng),
+            Mode::Recording { rng, record } => {
                 let value = generator.generate(rng);
                 record.push(Box::new(Generated {
                     name,
@@ -183,7 +199,10 @@ impl<'a> Maat<'a> {
                 }));
                 value
             }
-            Maat::Shrinking { at, recording } => {
+            Mode::Shrinking {
+                recording_ix: at,
+                recording,
+            } => {
                 let existing = &recording[*at];
                 if existing.name() != name {
                     panic!(
@@ -206,17 +225,6 @@ impl<'a> Maat<'a> {
     }
 }
 
-pub trait Context {
-    fn arbitrary<T>(&self, name: &'static str) -> T
-    where
-        rand::distributions::Standard: Distribution<T>,
-    {
-        self.generate(name, rand::distributions::Standard {})
-    }
-
-    fn generate<T>(&self, name: &'static str, distr: impl Distribution<T>) -> T;
-}
-
 pub struct Config {
     iterations: usize,
 }
@@ -236,45 +244,41 @@ pub fn property(test: impl Fn(&mut Maat) -> bool) {
 pub fn property_cfg(test: impl Fn(&mut Maat) -> bool, cfg: &Config) {
     // TODO: replay stored RNG values for regression-checks
     let mut rng = RNG::from_entropy();
+    let start = Instant::now();
     for _ in 0..cfg.iterations {
         // store RNG state so we can reuse it for recording, if needed
-        let record_rng = rng.clone();
-        let passed = test(&mut Maat::Testing { rng: &mut rng });
-        if !passed {
-            // we got a test failure, make a recording:
-            let original_recording = make_recording(&test, record_rng);
-
-            // now shrink the recording
-            let shrunk_recording = shrink_recording(
-                &test,
-                original_recording.iter().map(|x| x.cloned()).collect(),
-            );
-
-            let mut original = String::new();
-            for value in original_recording {
-                writeln!(original, "{}: {}", value.name(), value.display()).unwrap();
-            }
-
-            let mut shrunk = String::new();
-            for value in shrunk_recording {
-                writeln!(shrunk, "{}: {}", value.name(), value.display()).unwrap();
-            }
-
-            panic!("\n[maat] Shrunk failure:\n{shrunk}\n\n[maat] Original failure:\n{original}\n");
+        let iteration_rng = rng.clone();
+        let mode = Mode::Testing { rng: &mut rng };
+        if !test(&mut Maat { mode }) {
+            handle_failure(test, iteration_rng);
         }
     }
 
-    println!("{MAAT} OK, passed {} tests", cfg.iterations);
+    let elapsed = start.elapsed();
+    println!(
+        "[maat] OK, passed {} tests ({} iterations/s)",
+        cfg.iterations,
+        cfg.iterations as f64 / elapsed.as_secs_f64()
+    );
+}
+
+#[cold]
+fn handle_failure(test: impl Fn(&mut Maat) -> bool, rng: RNG) -> ! {
+    let original = make_recording(&test, rng);
+    let original_str = display_recording(&original);
+    let shrunk = shrink_recording(&test, original);
+    let shrunk_str = display_recording(&shrunk);
+    panic!("\n[maat] Shrunk failure:\n{shrunk_str}\n\n[maat] Original failure:\n{original_str}\n");
 }
 
 fn make_recording(test: impl Fn(&mut Maat) -> bool, mut rng: RNG) -> Recording {
     let mut record = Vec::new();
-    let mut recording = Maat::Recording {
+    let mode = Mode::Recording {
         rng: &mut rng,
         record: &mut record,
     };
 
-    let recording_passed = test(&mut recording);
+    let recording_passed = test(&mut Maat { mode });
     if recording_passed {
         panic!("[maat] Non-deterministic test function: found a failure but was unable to reproduce it.");
     }
@@ -288,9 +292,11 @@ fn shrink_recording(test: impl Fn(&mut Maat) -> bool, recording: Recording) -> R
         for ix in 0..recording.len() {
             let gv = &recording[ix];
             while gv.shrink(&|| {
-                !test(&mut Maat::Shrinking {
-                    at: 0,
-                    recording: &recording,
+                !test(&mut Maat {
+                    mode: Mode::Shrinking {
+                        recording_ix: 0,
+                        recording: &recording,
+                    },
                 })
             }) {
                 shrank_any = true;
@@ -305,16 +311,40 @@ fn shrink_recording(test: impl Fn(&mut Maat) -> bool, recording: Recording) -> R
     recording
 }
 
+fn display_recording(recording: &Recording) -> String {
+    let mut result = String::new();
+    for value in recording {
+        writeln!(result, "{value}").unwrap();
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::generators::i64;
 
     #[test]
-    pub fn run() {
+    pub fn failing() {
         property(|maat| {
             let x = maat.generate("x", i64(0, 100));
             let y = maat.generate("y", i64(0, 100));
             x + y == x + x || x < 10
         });
+    }
+
+    #[test]
+    pub fn add_symmetric() {
+        property_cfg(
+            |maat| {
+                let x = maat.generate("x", i64(0, 10_000));
+                let y = maat.generate("y", i64(0, 10_000));
+                x + y == y + x
+            },
+            &Config {
+                iterations: 37_000_000,
+            },
+        );
     }
 }
