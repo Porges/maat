@@ -1,13 +1,17 @@
 use dynamic::Dynamic;
 use rand::{prelude::Distribution, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus as RNG;
-use std::fmt::{Display, Write};
+use std::{
+    any::type_name,
+    cell::RefCell,
+    fmt::{Display, Write},
+};
 
 const MAAT: &str = "𓁦";
 
 pub trait Generator<T> {
     fn generate(&self, rng: &mut dyn rand::RngCore) -> T;
-    fn shrink(&self, value: &T) -> Option<T>;
+    fn shrink(&self, value: T, shrink_valid: &mut dyn FnMut(&T) -> bool) -> Option<T>;
 }
 
 pub fn i64(min_inclusive: i64, max_exclusive: i64) -> impl Generator<i64> + Clone {
@@ -30,23 +34,44 @@ pub fn i64(min_inclusive: i64, max_exclusive: i64) -> impl Generator<i64> + Clon
             ))
         }
 
-        fn shrink(&self, value: &i64) -> Option<i64> {
-            let v = *value;
-            if v > self.min_inclusive {
-                if v > 0 {
-                    return Some((v as f64).log10() as i64);
-                }
+        fn shrink(&self, value: i64, shrink_valid: &mut dyn FnMut(&i64) -> bool) -> Option<i64> {
+            let mut v = value;
 
-                let r = v / 2;
-                if r >= self.min_inclusive {
-                    return Some(r);
+            // very big shrink:
+            while v > self.min_inclusive && v > 0 {
+                let test = (v as f64).log10() as i64;
+                if shrink_valid(&test) {
+                    v = test;
+                } else {
+                    break;
                 }
-
-                let r = v - 1;
-                return Some(r);
             }
 
-            None
+            // big shrink
+            while v > self.min_inclusive {
+                let test = v / 2;
+                if shrink_valid(&test) {
+                    v = test;
+                } else {
+                    break;
+                }
+            }
+
+            // slow shrink:
+            while v > self.min_inclusive {
+                let test = v - 1;
+                if shrink_valid(&test) {
+                    v = test;
+                } else {
+                    break;
+                }
+            }
+
+            if v != value {
+                Some(v)
+            } else {
+                None
+            }
         }
     }
 }
@@ -54,7 +79,7 @@ pub fn i64(min_inclusive: i64, max_exclusive: i64) -> impl Generator<i64> + Clon
 #[derive(Clone)]
 struct Generated<T, G> {
     name: &'static str,
-    value: dynamic::Described<T>,
+    value: RefCell<dynamic::Described<T>>,
     generator: G,
 }
 
@@ -67,10 +92,24 @@ where
         self.name
     }
 
-    fn shrink(&mut self) -> bool {
-        if let Some(value) = self.generator.shrink(&self.value.data) {
-            println!("shrank {} from {} to {}", self.name, self.value.data, value);
-            self.value.data = value;
+    fn shrink(&self, is_valid: &dyn Fn() -> bool) -> bool {
+        if let Some(value) = {
+            let initial_value = self.value.borrow().data.clone();
+            self.generator.shrink(initial_value, &mut |shrunk: &T| {
+                let old_self = self.value.borrow().data.clone();
+                self.value.borrow_mut().data = shrunk.clone();
+                let passed = is_valid();
+                self.value.borrow_mut().data = old_self;
+                passed
+            })
+        } {
+            println!(
+                "shrank {} from {} to {}",
+                self.name,
+                self.value.borrow().data,
+                value
+            );
+            self.value.borrow_mut().data = value;
             true
         } else {
             false
@@ -78,11 +117,11 @@ where
     }
 
     fn value(&self) -> Box<Dynamic> {
-        Dynamic::new(self.value.data.clone())
+        Dynamic::new(self.value.borrow().data.clone())
     }
 
     fn set_value(&mut self, value: Box<Dynamic>) {
-        self.value.data = value.downcast().expect("value of wrong type provided").data;
+        self.value.borrow_mut().data = value.downcast().expect("value of wrong type provided").data;
     }
 
     fn cloned(&self) -> Box<dyn GeneratedValue> {
@@ -90,13 +129,18 @@ where
     }
 
     fn display(&self) -> String {
-        self.value.data.to_string()
+        self.value.borrow().data.to_string()
+    }
+
+    fn type_name(&self) -> &'static str {
+        type_name::<T>()
     }
 }
 
 pub trait GeneratedValue {
     fn name(&self) -> &'static str;
-    fn shrink(&mut self) -> bool;
+    fn type_name(&self) -> &'static str;
+    fn shrink(&self, shrink_valid: &dyn Fn() -> bool) -> bool;
     fn display(&self) -> String;
     fn value(&self) -> Box<Dynamic>;
     fn set_value(&mut self, value: Box<Dynamic>);
@@ -134,7 +178,7 @@ impl<'a> Maat<'a> {
                 let value = generator.generate(rng);
                 record.push(Box::new(Generated {
                     name,
-                    value: dynamic::Described::new(value.clone()),
+                    value: RefCell::new(dynamic::Described::new(value.clone())),
                     generator,
                 }));
                 value
@@ -153,9 +197,9 @@ impl<'a> Maat<'a> {
                     *at += 1;
                     value.clone()
                 } else {
-                    let old = existing.value().id();
-                    let new = core::any::TypeId::of::<T>();
-                    panic!("[maat] Usage error: while shrinking, got a different type for generated value {at}: was {old:?}, is {new:?}");
+                    let old = existing.type_name();
+                    let new = type_name::<T>();
+                    panic!("[maat] Usage error: while shrinking, got a different type for generated value {at}: was {old}, is {new}");
                 }
             }
         }
@@ -238,34 +282,18 @@ fn make_recording(test: impl Fn(&mut Maat) -> bool, mut rng: RNG) -> Recording {
     record
 }
 
-fn shrink_recording(test: impl Fn(&mut Maat) -> bool, mut recording: Recording) -> Recording {
+fn shrink_recording(test: impl Fn(&mut Maat) -> bool, recording: Recording) -> Recording {
     loop {
         let mut shrank_any = false;
         for ix in 0..recording.len() {
-            let mut old_value: Box<Dynamic> = recording[ix].value();
-            while recording[ix].shrink() {
-                // TODO: we need to be able to try a series of shrinks
-                // at the moment we only try the biggest shrink each time
-
-                // this is worse than the go version
-
-                // the shrinker really needs to be able to return a list of shrinks
-                // (biggest shrink first)
-
-                let passed = test(&mut Maat::Shrinking {
+            let gv = &recording[ix];
+            while gv.shrink(&|| {
+                !test(&mut Maat::Shrinking {
                     at: 0,
-                    recording: &mut recording,
-                });
-
-                if passed {
-                    // we shrank too far
-                    println!("shrank too far");
-                    recording[ix].set_value(old_value);
-                    break;
-                }
-
+                    recording: &recording,
+                })
+            }) {
                 shrank_any = true;
-                old_value = recording[ix].value();
             }
         }
 
