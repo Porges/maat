@@ -20,13 +20,13 @@
 //! ```text
 //! ---- test::run stdout ----
 //! thread 'test::run' panicked at '
-//! [maat] Shrunk failure:
+//! [maat] Falsified property with values:
 //! x: i64 = 10
 //! y: i64 = 0
 //!
-//! [maat] Original failure:
-//! x: i64 = 49
-//! y: i64 = 27
+//! [maat] Original failing values were:
+//! x: i64 = 12
+//! y: i64 = 36
 //!
 //! ', src/lib.rs:287:13
 //! ```
@@ -56,10 +56,12 @@ use std::{
 pub mod generators;
 
 #[derive(Clone)]
-pub struct Shrinkable<T: 'static> {
+pub struct Shrinkable<T> {
     value: T,
-    shrink: Rc<dyn Fn(&T, &mut dyn FnMut(T) -> bool) -> bool>,
+    shrink: Shrinker<T>,
 }
+
+type Shrinker<T> = Rc<dyn Fn(&T, &mut dyn FnMut(T) -> bool) -> bool>;
 
 impl<T> Shrinkable<T> {
     fn shrink(&self, is_valid: &mut dyn FnMut(Shrinkable<T>) -> bool) -> bool {
@@ -81,6 +83,7 @@ pub trait Generator<T> {
     fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> Shrinkable<T>;
 }
 
+// Why is this needed?
 impl<Gen, T> Generator<T> for &Gen
 where
     Gen: Generator<T> + ?Sized,
@@ -94,7 +97,7 @@ where
     }
 }
 
-struct Generated<T: 'static> {
+struct Generated<T> {
     name: &'static str,
     value: RefCell<Shrinkable<T>>,
 }
@@ -145,7 +148,7 @@ where
 
 /// GeneratedValue exists to hide the real type
 /// and allow for heterogenous values in the [Recording].
-pub trait GeneratedValue: Display {
+trait GeneratedValue: Display {
     fn name(&self) -> &'static str;
     fn type_name(&self) -> &'static str;
     fn value(&self) -> Box<Dynamic>;
@@ -283,7 +286,7 @@ fn handle_failure(test: impl Fn(&mut Maat) -> bool, rng: RNG) -> ! {
     let original_str = display_recording(&original);
     let shrunk = shrink_recording(&test, original);
     let shrunk_str = display_recording(&shrunk);
-    panic!("\n[maat] Shrunk failure:\n{shrunk_str}\n\n[maat] Original failure:\n{original_str}\n");
+    panic!("\n[maat] Falsified property with values:\n{shrunk_str}\n\n[maat] Original failing values were:\n{original_str}\n");
 }
 
 fn make_recording(test: impl Fn(&mut Maat) -> bool, mut rng: RNG) -> Recording {
@@ -307,7 +310,7 @@ fn shrink_recording(test: impl Fn(&mut Maat) -> bool, recording: Recording) -> R
         // attempt to shrink each value in the recording
         for value in &recording {
             while value.shrink(&mut || {
-                // shrink is valid if test fails
+                // the shrink is valid if test still fails
                 !test(&mut Maat {
                     mode: Mode::Shrinking {
                         recording_ix: 0,
@@ -349,29 +352,23 @@ mod test {
             let x = maat.generate("x", i64(0, 100));
             let y = maat.generate("y", i64(0, 100));
             x + y == x + x || x < 10
-        });
+        })
     }
 
     #[test]
     pub fn add_symmetric() {
-        property_cfg(
-            |maat| {
-                let x = maat.generate("x", i64(0, 10_000));
-                let y = maat.generate("y", i64(0, 10_000));
-                x + y == y + x
-            },
-            &Config {
-                iterations: 38_000_000,
-            },
-        );
+        property(|maat| {
+            let x = maat.generate("x", i64(0, 10_000));
+            let y = maat.generate("y", i64(0, 10_000));
+            x + y == y + x
+        })
     }
 
     #[test]
     pub fn test_inner() {
         property(|maat| {
             let x = maat.generate("x", vec(i64(0, 100), 0, 10));
-            let mut y = x.clone();
-            y.reverse();
+            let y = maat.generate("y", vec(i64(0, 100), 0, 10));
             x == y
         })
     }

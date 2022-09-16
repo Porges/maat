@@ -21,14 +21,14 @@ pub fn test_inner() {
 Run it:
 
 ```
-[maat] Shrunk failure:
+[maat] Falsified property with values:
 x: alloc::vec::Vec<i64> = [
     0,
     1,
 ]
 
 
-[maat] Original failure:
+[maat] Original failing values were:
 x: alloc::vec::Vec<i64> = [
     51,
     32,

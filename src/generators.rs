@@ -8,12 +8,11 @@ use crate::{Generator, Maat, Mode, Shrinkable};
 /// doesn’t ever shrink. It is useful for generating values that are
 /// needed to compile/run the test but are known not to be relevant to
 /// the property being tested.
-pub fn placeholder<T>() -> impl Generator<T> + Clone
+pub fn placeholder<T>() -> impl Generator<T>
 where
     T: Clone,
     rand::distributions::Standard: Distribution<T>,
 {
-    #[derive(Clone)]
     struct G<T> {
         _marker: std::marker::PhantomData<T>,
     }
@@ -153,7 +152,6 @@ pub fn derive<T>(f: impl Fn(&mut crate::Maat) -> T + 'static) -> impl Generator<
                 shrink: Rc::new(move |_original_value, is_valid| {
                     let mut ever_shrank = false;
                     loop {
-                        // TODO: do we need to clone the recording?
                         let mut shrank_any = false;
                         for v in &recording {
                             while v.shrink(&mut || {
