@@ -31,7 +31,7 @@ where
         }
 
         fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> crate::Shrinkable<T> {
-            Shrinkable::Simple {
+            Shrinkable {
                 value: self.generate(rng),
                 shrink: Rc::new(|_value, _is_valid| false /* never shrinks */),
             }
@@ -64,7 +64,7 @@ macro_rules! numeric_generator {
 
                 fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> Shrinkable<$type> {
                     let min_inclusive = self.min_inclusive;
-                    Shrinkable::Simple {
+                    Shrinkable {
                         value: self.generate(rng),
                         shrink: Rc::new(move |original_value, is_valid| {
                             let mut value = *original_value;
@@ -119,20 +119,20 @@ numeric_generator!(u8, u8);
 numeric_generator!(usize, usize);
 numeric_generator!(isize, isize);
 
-pub fn derive<T>(f: impl Fn(&mut crate::Maat) -> T) -> impl Generator<T> {
+pub fn derive<T>(f: impl Fn(&mut crate::Maat) -> T + 'static) -> impl Generator<T> {
     struct G<T, F> {
-        deriver: F,
+        deriver: Rc<F>,
         _marker: std::marker::PhantomData<T>,
     }
 
     return G {
-        deriver: f,
+        deriver: Rc::new(f),
         _marker: std::marker::PhantomData,
     };
 
     impl<T, F> Generator<T> for G<T, F>
     where
-        F: Fn(&mut Maat) -> T,
+        F: Fn(&mut Maat) -> T + 'static,
     {
         fn generate(&self, rng: &mut dyn rand::RngCore) -> T {
             let mode = Mode::Testing { rng };
@@ -146,15 +146,26 @@ pub fn derive<T>(f: impl Fn(&mut crate::Maat) -> T) -> impl Generator<T> {
                 record: &mut recording,
             };
 
-            let value = (self.deriver)(&mut crate::Maat { mode });
-            Shrinkable::Simple {
+            let deriver = self.deriver.clone();
+            let value = deriver(&mut crate::Maat { mode });
+            Shrinkable {
                 value,
                 shrink: Rc::new(move |_original_value, is_valid| {
-                    let r = &recording;
-                    // shrink_recording(is_valid, recording);
-                    // original value not used for shrinking
-                    // instead we shrink the recording and regenerate the value
-                    todo!()
+                    // TODO: do we need to clone the recording?
+                    let mut shrank_any = false;
+                    for v in &recording {
+                        while v.shrink(&mut || {
+                            is_valid(deriver(&mut Maat {
+                                mode: Mode::Shrinking {
+                                    recording_ix: 0,
+                                    recording: &recording,
+                                },
+                            }))
+                        }) {
+                            shrank_any = true
+                        }
+                    }
+                    shrank_any
                 }),
             }
         }

@@ -55,58 +55,20 @@ use std::{
 
 pub mod generators;
 
-pub enum Shrinkable<T: 'static> {
-    Simple {
-        value: T,
-        shrink: Rc<dyn Fn(&T, &mut dyn FnMut(T) -> bool) -> bool>,
-    },
-    Derived {
-        value: T,
-        recording: Recording,
-        deriver: Rc<dyn Fn(&mut Maat) -> T>,
-    },
+#[derive(Clone)]
+pub struct Shrinkable<T: 'static> {
+    value: T,
+    shrink: Rc<dyn Fn(&T, &mut dyn FnMut(T) -> bool) -> bool>,
 }
 
 impl<T> Shrinkable<T> {
     fn shrink(&self, is_valid: &mut dyn FnMut(Shrinkable<T>) -> bool) -> bool {
-        match self {
-            Shrinkable::Simple { value, shrink } => shrink(value, &mut |v| {
-                is_valid(Shrinkable::Simple {
-                    value: v,
-                    shrink: shrink.clone(),
-                })
-            }),
-            Shrinkable::Derived {
-                recording, deriver, ..
-            } => {
-                todo!()
-            }
-        }
-    }
-}
-
-impl<T: Clone> Clone for Shrinkable<T> {
-    fn clone(&self) -> Self {
-        match self {
-            Shrinkable::Simple { value, shrink } => Shrinkable::Simple {
-                value: value.clone(),
-                shrink: shrink.clone(),
-            },
-            Shrinkable::Derived {
-                value,
-                recording,
-                deriver,
-            } => todo!(),
-        }
-    }
-}
-
-impl<T> Shrinkable<T> {
-    fn value(&self) -> &T {
-        match self {
-            Shrinkable::Simple { value, .. } => value,
-            Shrinkable::Derived { value, .. } => value,
-        }
+        (self.shrink)(&self.value, &mut |v| {
+            is_valid(Shrinkable {
+                value: v,
+                shrink: self.shrink.clone(),
+            })
+        })
     }
 }
 
@@ -147,7 +109,7 @@ where
             "{}: {} = {:#?}",
             self.name,
             type_name::<T>(),
-            self.value.borrow().value()
+            self.value.borrow().value
         )
     }
 }
@@ -160,7 +122,7 @@ where
         self.name
     }
 
-    fn shrink(&self, is_valid: &dyn Fn() -> bool) -> bool {
+    fn shrink(&self, is_valid: &mut dyn FnMut() -> bool) -> bool {
         let original_value = self.value.borrow().clone();
         original_value.shrink(&mut |mut shrunk: Shrinkable<T>| {
             std::mem::swap(self.value.borrow_mut().deref_mut(), &mut shrunk);
@@ -173,7 +135,7 @@ where
     }
 
     fn value(&self) -> Box<Dynamic> {
-        Dynamic::new(self.value.borrow().value().clone())
+        Dynamic::new(self.value.borrow().value.clone())
     }
 
     fn type_name(&self) -> &'static str {
@@ -189,7 +151,7 @@ pub trait GeneratedValue: Display {
     fn value(&self) -> Box<Dynamic>;
 
     // Attempts to shrink the internal value, mutably:
-    fn shrink(&self, shrink_valid: &dyn Fn() -> bool) -> bool;
+    fn shrink(&self, shrink_valid: &mut dyn FnMut() -> bool) -> bool;
 }
 
 type Recording = Vec<Box<dyn GeneratedValue>>;
@@ -244,7 +206,7 @@ impl<'a> Mode<'a> {
             Mode::Testing { rng } => generator.generate(rng),
             Mode::Recording { rng, record } => {
                 let shrinkable = generator.generate_shrinkable(rng);
-                let result = shrinkable.value().clone();
+                let result = shrinkable.value.clone();
                 record.push(Box::new(Generated {
                     name,
                     value: RefCell::new(shrinkable),
@@ -344,7 +306,7 @@ fn shrink_recording(test: impl Fn(&mut Maat) -> bool, recording: Recording) -> R
         let mut shrank_any = false;
         // attempt to shrink each value in the recording
         for value in &recording {
-            while value.shrink(&|| {
+            while value.shrink(&mut || {
                 // shrink is valid if test fails
                 !test(&mut Maat {
                     mode: Mode::Shrinking {
@@ -399,7 +361,7 @@ mod test {
                 x + y == y + x
             },
             &Config {
-                iterations: 100_000_000,
+                iterations: 38_000_000,
             },
         );
     }
@@ -410,12 +372,12 @@ mod test {
             let x = maat.generate("x", vec(i64(0, 100), 0, 10));
             let mut y = x.clone();
             y.reverse();
-            x == x
+            x == y
         })
     }
 
     pub fn vec<T: 'static + Clone + std::fmt::Debug>(
-        inner: impl Generator<T>,
+        inner: impl Generator<T> + 'static,
         min_length_inclusive: usize,
         max_length_exclusive: usize,
     ) -> impl Generator<Vec<T>> {
