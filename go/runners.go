@@ -35,7 +35,6 @@ func Run[T any](r *Runner, name string, generator gen.Generator[T]) T {
 		generated := generator.Generate(r.rand)
 		record := &generationRecord[T]{
 			name:      name,
-			generator: generator,
 			generated: generated,
 		}
 
@@ -64,7 +63,6 @@ type recording []generationRecordInterface
 
 type generationRecord[T any] struct {
 	name      string
-	generator gen.Generator[T]
 	generated gen.GeneratedValue[T]
 	depth     int
 }

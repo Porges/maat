@@ -1,6 +1,8 @@
+use std::rc::Rc;
+
 use rand::{distributions::Distribution, Rng};
 
-use crate::Generator;
+use crate::{shrink_recording, Generator, Maat, Mode, Shrinkable};
 
 /// The `placeholder` generator generates an arbitrary value that
 /// doesn’t ever shrink. It is useful for generating values that are
@@ -28,131 +30,133 @@ where
             rng.sample(rand::distributions::Standard {})
         }
 
-        fn shrink(&self, _value: T, _shrink_valid: &mut dyn FnMut(&T) -> bool) -> Option<T> {
-            None
+        fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> crate::Shrinkable<T> {
+            Shrinkable::Simple {
+                value: self.generate(rng),
+                shrink: Rc::new(|_value, _is_valid| false /* never shrinks */),
+            }
         }
     }
 }
 
-/// The `i64` generator generates values uniformly distributed between the given bounds.
-pub fn i64(min_inclusive: i64, max_exclusive: i64) -> impl Generator<i64> + Clone {
-    #[derive(Clone)]
-    struct G {
-        min_inclusive: i64,
-        max_exclusive: i64,
-    }
+macro_rules! numeric_generator {
+    ($name: ident, $type:ty) => {
+        /// The `$name` generator generates values uniformly distributed between the given bounds.
+        pub fn $name(min_inclusive: $type, max_exclusive: $type) -> impl Generator<$type> + Copy {
+            #[derive(Copy, Clone)]
+            struct G {
+                min_inclusive: $type,
+                max_exclusive: $type,
+            }
 
-    return G {
-        min_inclusive,
-        max_exclusive,
+            return G {
+                min_inclusive,
+                max_exclusive,
+            };
+
+            impl Generator<$type> for G {
+                fn generate(&self, rng: &mut dyn rand::RngCore) -> $type {
+                    rng.sample(rand::distributions::Uniform::new(
+                        self.min_inclusive,
+                        self.max_exclusive,
+                    ))
+                }
+
+                fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> Shrinkable<$type> {
+                    let min_inclusive = self.min_inclusive;
+                    Shrinkable::Simple {
+                        value: self.generate(rng),
+                        shrink: Rc::new(move |original_value, is_valid| {
+                            let mut value = *original_value;
+
+                            // very big shrink:
+                            while value > min_inclusive && value > 0 {
+                                let test = (value as f64).log10() as $type;
+                                if is_valid(test) {
+                                    value = test;
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            // big shrink
+                            while value > min_inclusive {
+                                let test = value / 2;
+                                if is_valid(test) {
+                                    value = test;
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            // slow shrink:
+                            while value > min_inclusive {
+                                let test = value - 1;
+                                if is_valid(test) {
+                                    value = test;
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            value != *original_value
+                        }),
+                    }
+                }
+            }
+        }
     };
-
-    impl Generator<i64> for G {
-        fn generate(&self, rng: &mut dyn rand::RngCore) -> i64 {
-            rng.sample(rand::distributions::Uniform::new(
-                self.min_inclusive,
-                self.max_exclusive,
-            ))
-        }
-
-        fn shrink(&self, value: i64, shrink_valid: &mut dyn FnMut(&i64) -> bool) -> Option<i64> {
-            let mut v = value;
-
-            // very big shrink:
-            while v > self.min_inclusive && v > 0 {
-                let test = (v as f64).log10() as i64;
-                if shrink_valid(&test) {
-                    v = test;
-                } else {
-                    break;
-                }
-            }
-
-            // big shrink
-            while v > self.min_inclusive {
-                let test = v / 2;
-                if shrink_valid(&test) {
-                    v = test;
-                } else {
-                    break;
-                }
-            }
-
-            // slow shrink:
-            while v > self.min_inclusive {
-                let test = v - 1;
-                if shrink_valid(&test) {
-                    v = test;
-                } else {
-                    break;
-                }
-            }
-
-            if v != value {
-                Some(v)
-            } else {
-                None
-            }
-        }
-    }
 }
 
-pub fn vec<T>(length: usize, inner: impl Generator<T>) -> impl Generator<Vec<T>> {
-    struct G<Inner> {
-        length: usize,
-        inner: Inner,
-    }
+numeric_generator!(i64, i64);
+numeric_generator!(i32, i32);
+numeric_generator!(i16, i16);
+numeric_generator!(i8, i8);
+numeric_generator!(u64, u64);
+numeric_generator!(u32, u32);
+numeric_generator!(u16, u16);
+numeric_generator!(u8, u8);
+numeric_generator!(usize, usize);
+numeric_generator!(isize, isize);
 
-    return G { length, inner };
-
-    impl<Inner, T> Generator<Vec<T>> for G<Inner>
-    where
-        Inner: Generator<T>,
-    {
-        fn generate(&self, rng: &mut dyn rand::RngCore) -> Vec<T> {
-            let mut result = Vec::with_capacity(self.length);
-            for _ in 0..self.length {
-                result.push(self.inner.generate(rng));
-            }
-
-            result
-        }
-
-        fn shrink(
-            &self,
-            value: Vec<T>,
-            shrink_valid: &mut dyn FnMut(&Vec<T>) -> bool,
-        ) -> Option<Vec<T>> {
-            todo!()
-        }
-    }
-}
-
-pub fn inner<T>(f: impl Fn(&mut crate::Maat) -> T + Clone) -> impl Generator<T> {
+pub fn derive<T>(f: impl Fn(&mut crate::Maat) -> T) -> impl Generator<T> {
     struct G<T, F> {
-        recording: crate::Recording,
-        inner: F,
+        deriver: F,
         _marker: std::marker::PhantomData<T>,
     }
 
     return G {
-        recording: crate::Recording::new(),
-        inner: f,
+        deriver: f,
         _marker: std::marker::PhantomData,
     };
 
     impl<T, F> Generator<T> for G<T, F>
     where
-        F: Fn(&mut crate::Maat) -> T,
+        F: Fn(&mut Maat) -> T,
     {
         fn generate(&self, rng: &mut dyn rand::RngCore) -> T {
-            (self.inner)(&mut crate::Maat {
-                mode: crate::Mode::Testing { rng },
-            })
+            let mode = Mode::Testing { rng };
+            (self.deriver)(&mut Maat { mode })
         }
 
-        fn shrink(&self, value: T, shrink_valid: &mut dyn FnMut(&T) -> bool) -> Option<T> {
-            None
+        fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> Shrinkable<T> {
+            let mut recording = Vec::new();
+            let mode = Mode::Recording {
+                rng,
+                record: &mut recording,
+            };
+
+            let value = (self.deriver)(&mut crate::Maat { mode });
+            Shrinkable::Simple {
+                value,
+                shrink: Rc::new(move |_original_value, is_valid| {
+                    let r = &recording;
+                    // shrink_recording(is_valid, recording);
+                    // original value not used for shrinking
+                    // instead we shrink the recording and regenerate the value
+                    todo!()
+                }),
+            }
         }
     }
 }
