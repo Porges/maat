@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use rand::{distributions::Distribution, Rng};
 
-use crate::{shrink_recording, Generator, Maat, Mode, Shrinkable};
+use crate::{Generator, Maat, Mode, Shrinkable};
 
 /// The `placeholder` generator generates an arbitrary value that
 /// doesn’t ever shrink. It is useful for generating values that are
