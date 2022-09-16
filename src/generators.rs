@@ -151,21 +151,31 @@ pub fn derive<T>(f: impl Fn(&mut crate::Maat) -> T + 'static) -> impl Generator<
             Shrinkable {
                 value,
                 shrink: Rc::new(move |_original_value, is_valid| {
-                    // TODO: do we need to clone the recording?
-                    let mut shrank_any = false;
-                    for v in &recording {
-                        while v.shrink(&mut || {
-                            is_valid(deriver(&mut Maat {
-                                mode: Mode::Shrinking {
-                                    recording_ix: 0,
-                                    recording: &recording,
-                                },
-                            }))
-                        }) {
-                            shrank_any = true
+                    let mut ever_shrank = false;
+                    loop {
+                        // TODO: do we need to clone the recording?
+                        let mut shrank_any = false;
+                        for v in &recording {
+                            while v.shrink(&mut || {
+                                is_valid(deriver(&mut Maat {
+                                    mode: Mode::Shrinking {
+                                        recording_ix: 0,
+                                        recording: &recording,
+                                    },
+                                }))
+                            }) {
+                                shrank_any = true;
+                            }
+                        }
+
+                        if !shrank_any {
+                            break;
+                        } else {
+                            ever_shrank = true;
                         }
                     }
-                    shrank_any
+
+                    ever_shrank
                 }),
             }
         }
