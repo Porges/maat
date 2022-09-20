@@ -1,6 +1,9 @@
-use std::rc::Rc;
+use std::{ops::RangeBounds, rc::Rc};
 
-use rand::{distributions::Distribution, Rng};
+use rand::{
+    distributions::{DistString, Distribution},
+    Rng,
+};
 
 use crate::{Generator, Maat, Mode, Shrinkable};
 
@@ -117,6 +120,145 @@ numeric_generator!(u16, u16);
 numeric_generator!(u8, u8);
 numeric_generator!(usize, usize);
 numeric_generator!(isize, isize);
+
+pub fn string<B: RangeBounds<usize>>(bounds: B) -> impl Generator<String> {
+    struct G {
+        min_len_inclusive: usize,
+        max_len_inclusive: usize,
+    }
+
+    let min_len_inclusive = match bounds.start_bound() {
+        std::ops::Bound::Included(&x) => x,
+        std::ops::Bound::Excluded(&x) => x + 1,
+        std::ops::Bound::Unbounded => 0,
+    };
+
+    let max_len_inclusive = match bounds.end_bound() {
+        std::ops::Bound::Included(&x) => x,
+        std::ops::Bound::Excluded(&x) => x - 1,
+        std::ops::Bound::Unbounded => usize::MAX, // uhhhhhhhhhhhh
+    };
+
+    return G {
+        min_len_inclusive,
+        max_len_inclusive,
+    };
+
+    impl Generator<String> for G {
+        fn generate(&self, rng: &mut dyn rand::RngCore) -> String {
+            let length = rng.sample(rand::distributions::Uniform::new_inclusive(
+                self.min_len_inclusive,
+                self.max_len_inclusive,
+            ));
+
+            rand::distributions::Standard {}.sample_string(rng, length)
+        }
+
+        fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> Shrinkable<String> {
+            Shrinkable {
+                value: self.generate(rng),
+                shrink: Rc::new(|original_value, is_valid| todo!()),
+            }
+        }
+    }
+}
+
+pub fn string_from_example(
+    value: &str,
+    max_length_inclusive: Option<usize>,
+) -> impl Generator<String> {
+    struct G {
+        input: Vec<u8>,
+        max_length_inclusive: Option<usize>,
+    }
+
+    return G {
+        input: value.as_bytes().to_owned(),
+        max_length_inclusive,
+    };
+
+    impl Generator<String> for G {
+        fn generate(&self, rng: &mut dyn rand::RngCore) -> String {
+            let seed = Some(rng.next_u32());
+            let bytes = radamsa::generate(&self.input, seed, self.max_length_inclusive);
+            let result = String::from_utf8_lossy(&bytes).to_string();
+            result
+        }
+
+        fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> Shrinkable<String> {
+            Shrinkable {
+                value: self.generate(rng),
+                // TODO: use string shrinking
+                shrink: Rc::new(|_original_value, _is_valid| false),
+            }
+        }
+    }
+}
+
+pub fn string_alphanumeric(length: usize) -> impl Generator<String> {
+    struct G {
+        length: usize,
+    }
+
+    return G { length };
+
+    impl Generator<String> for G {
+        fn generate(&self, rng: &mut dyn rand::RngCore) -> String {
+            rand::distributions::Standard {}.sample_string(rng, self.length)
+        }
+
+        fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> Shrinkable<String> {
+            Shrinkable {
+                value: self.generate(rng),
+                shrink: Rc::new(|original_value, is_valid| todo!()),
+            }
+        }
+    }
+}
+
+pub fn alphanumeric() -> impl Generator<char> {
+    struct G {}
+
+    return G {};
+
+    impl Generator<char> for G {
+        fn generate(&self, rng: &mut dyn rand::RngCore) -> char {
+            rng.sample(rand::distributions::Alphanumeric {}) as char
+        }
+
+        fn generate_shrinkable(&self, rng: &mut dyn rand::RngCore) -> Shrinkable<char> {
+            Shrinkable {
+                value: self.generate(rng),
+                shrink: Rc::new(|original_value, is_valid| {
+                    let mut value = *original_value;
+
+                    // generator only generates u8s so it is safe to cast them
+
+                    // shrink towards X
+                    while value > 'x' {
+                        let new_value = ((value as u8) - 1) as char;
+                        if is_valid(new_value) {
+                            value = new_value;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    while value < 'x' {
+                        let new_value = ((value as u8) + 1) as char;
+                        if is_valid(new_value) {
+                            value = new_value;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    value != *original_value
+                }),
+            }
+        }
+    }
+}
 
 pub fn derive<T>(f: impl Fn(&mut crate::Maat) -> T + 'static) -> impl Generator<T> {
     struct G<T, F> {

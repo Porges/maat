@@ -344,7 +344,7 @@ fn display_recording(recording: &Recording) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::generators::{derive, i64, usize};
+    use crate::generators::{derive, i64, string_from_example, usize};
 
     #[test]
     pub fn failing() {
@@ -361,6 +361,14 @@ mod test {
             let x = maat.generate("x", i64(0, 10_000));
             let y = maat.generate("y", i64(0, 10_000));
             x + y == y + x
+        })
+    }
+
+    #[test]
+    pub fn test_string_from_example() {
+        property(|maat| {
+            let s = maat.generate("s", string_from_example("test", None));
+            s.len() >= 3
         })
     }
 
